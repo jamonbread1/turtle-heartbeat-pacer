@@ -1,15 +1,22 @@
 name: pacer
+# 自续链条: 不依赖 GitHub cron (本账户 schedule 被大面积静默丢弃, 实测29小时仅4次)
+# 每次运行: ①立即 dispatch 私有仓 turtle4h (即时执行, ~10s内开跑)
+#           ②睡 3600s ③自派发下一班 pacer → 循环
+# 兜底: 保留 cron 班位 + 手动 Run workflow 随时可重启链条
 on:
   schedule:
-    - cron: "13 * * * *"    # 每小时班次1
-    - cron: "44 * * * *"    # 每小时班次2 (双保险)
+    - cron: "13,44 * * * *"   # 兜底班位 (若链条断, 这两班偶尔能蒙到)
   workflow_dispatch:
 permissions: {}
+concurrency:
+  group: pacer
+  cancel-in-progress: true    # 新班次顶替旧睡眠者, 防止并行堆积
 jobs:
   kick:
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     steps:
-      - name: dispatch turtle4h (即时执行, 不走cron队列)
+      - name: dispatch turtle4h (立即发令)
         run: |
           code=$(curl -sS -o /tmp/r.txt -w "%{http_code}" -X POST \
             -H "Authorization: Bearer ${{ secrets.PACER_TOKEN }}" \
@@ -17,6 +24,17 @@ jobs:
             -H "User-Agent: turtle-pacer" \
             https://api.github.com/repos/jamonbread1/turtle-signal/actions/workflows/turtle.yml/dispatches \
             -d '{"ref":"main"}')
-          echo "dispatch http=$code"
-          cat /tmp/r.txt || true
+          echo "dispatch turtle4h http=$code"; cat /tmp/r.txt || true
+          test "$code" = "204"
+      - name: 睡到下一班 (60min, 公开仓免费)
+        run: sleep 3600
+      - name: 自派发下一班 (链条延续)
+        run: |
+          code=$(curl -sS -o /tmp/r2.txt -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.PACER_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: turtle-pacer" \
+            https://api.github.com/repos/jamonbread1/turtle-heartbeat-pacer/actions/workflows/pacer.yml/dispatches \
+            -d '{"ref":"main"}')
+          echo "self-dispatch pacer http=$code"; cat /tmp/r2.txt || true
           test "$code" = "204"

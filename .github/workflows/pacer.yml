@@ -1,0 +1,22 @@
+name: pacer
+on:
+  schedule:
+    - cron: "13 * * * *"    # 每小时班次1
+    - cron: "44 * * * *"    # 每小时班次2 (双保险)
+  workflow_dispatch:
+permissions: {}
+jobs:
+  kick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: dispatch turtle4h (即时执行, 不走cron队列)
+        run: |
+          code=$(curl -sS -o /tmp/r.txt -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.PACER_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: turtle-pacer" \
+            https://api.github.com/repos/jamonbread1/turtle-signal/actions/workflows/turtle.yml/dispatches \
+            -d '{"ref":"main"}')
+          echo "dispatch http=$code"
+          cat /tmp/r.txt || true
+          test "$code" = "204"
